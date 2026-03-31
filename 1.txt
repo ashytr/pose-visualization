@@ -1,0 +1,14 @@
+重启服务
+sudo systemctl daemon-reload
+sudo systemctl restart pose-server
+sudo systemctl status pose-server
+
+
+
+| 操作       | 结果                |
+| :------- | :---------------- |
+| `Ctrl+Z` | **暂停**进程，服务停止响应 ❌ |
+| `Ctrl+C` | **终止**进程，服务停止 ❌   |
+| `&` 结尾   | **后台运行**，继续服务 ✅   |
+| `nohup`  | 退出SSH后仍运行 ✅       |
+| `pm2`    | 专业进程管理，推荐 ✅       |

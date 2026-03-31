@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <title>ESP32 姿态与延迟监控</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+
+    <style>
+        :root {
+            --bg: #0f172a;
+            --bg-card: #111827;
+            --bg-card-soft: #020617;
+            --accent: #3b82f6;
+            --accent-soft: rgba(59,130,246,0.15);
+            --accent-2: #22c55e;
+            --text-main: #e5e7eb;
+            --text-sub: #9ca3af;
+            --border-soft: rgba(148,163,184,0.3);
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #1f2937 0, #020617 45%, #000 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+        }
+
+        .app {
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        header {
+            margin-bottom: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 8px 16px;
+            justify-content: space-between;
+        }
+
+        .title {
+            font-size: clamp(1.4rem, 1.2rem + 0.6vw, 2rem);
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: var(--text-sub);
+        }
+
+        .status-pill {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-card-soft);
+            border: 1px solid var(--border-soft);
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: var(--danger);
+            box-shadow: 0 0 10px rgba(239,68,68,0.5);
+        }
+
+        .dot.online {
+            background: var(--accent-2);
+            box-shadow: 0 0 10px rgba(34,197,94,0.6);
+        }
+
+        /* 主布局：数值卡片 + 3D 视图 */
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
+            gap: 16px;
+        }
+
+        /* 小屏改为上下布局 */
+        @media (max-width: 768px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 大屏放大 */
+        @media (min-width: 1400px) {
+            body {
+                padding: 32px;
+            }
+            .app {
+                max-width: 1600px;
+            }
+            .title {
+                font-size: clamp(1.8rem, 1.4rem + 1vw, 2.6rem);
+            }
+            .card {
+                padding: 20px 22px;
+            }
+            .card-title {
+                font-size: 1.1rem;
+            }
+            .metric-value {
+                font-size: 1.8rem;
+            }
+            .metric-label {
+                font-size: 0.9rem;
+            }
+            .metric-unit {
+                font-size: 0.85rem;
+            }
+        }
+
+        .card {
+            background: radial-gradient(circle at top left, #1f2937 0, #020617 60%);
+            border-radius: 18px;
+            padding: 14px 16px;
+            border: 1px solid var(--border-soft);
+            box-shadow:
+              0 18px 40px rgba(15,23,42,0.8),
+              0 0 0 1px rgba(15,23,42,0.5);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        .card-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-sub);
+        }
+
+        .card-sub {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+        }
+
+        /* 数值区 */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 600px) {
+            .metrics-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        .metric {
+            padding: 10px 10px 8px;
+            border-radius: 12px;
+            background: linear-gradient(145deg, rgba(15,23,42,0.95), rgba(15,23,42,0.5));
+            border: 1px solid rgba(148,163,184,0.35);
+        }
+
+        .metric-label {
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.11em;
+            color: var(--text-sub);
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+
+        .metric-unit {
+            font-size: 0.78rem;
+            color: var(--text-sub);
+            margin-left: 4px;
+        }
+
+        .metric-tag {
+            margin-top: 2px;
+            font-size: 0.7rem;
+            color: var(--accent);
+        }
+
+        .metric-lat {
+            background: linear-gradient(135deg, rgba(30,64,175,0.9), rgba(30,64,175,0.35));
+            border-color: rgba(59,130,246,0.6);
+        }
+
+        .metric-lat .metric-label {
+            color: #bfdbfe;
+        }
+
+        .metric-lat .metric-value {
+            color: #e5edff;
+        }
+
+        /* 3D 容器 */
+        #canvas3d {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 16px;
+            overflow: hidden;
+            background: radial-gradient(circle at top, #1f2937 0, #020617 55%, #020617 100%);
+            border: 1px solid rgba(148,163,184,0.45);
+            box-shadow:
+              0 18px 45px rgba(15,23,42,1),
+              0 0 0 1px rgba(15,23,42,0.8);
+            position: relative;
+        }
+
+        @media (min-width: 900px) {
+            #canvas3d {
+                aspect-ratio: 4 / 3;
+            }
+        }
+
+        /* 超大屏时拉成 16:9 */
+        @media (min-width: 1400px) {
+            #canvas3d {
+                aspect-ratio: 16 / 9;
+            }
+        }
+
+        #canvas3d canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .overlay-corner {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            font-size: 0.75rem;
+            color: var(--text-sub);
+            background: rgba(15,23,42,0.85);
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(148,163,184,0.3);
+        }
+
+        .small-muted {
+            font-size: 0.7rem;
+            color: var(--text-sub);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <header>
+        <div>
+            <div class="title">ESP32 姿态 & 网络延迟监控</div>
+            <div class="subtitle">实时展示 Roll / Pitch / Yaw 以及端到端延迟</div>
+        </div>
+        <div class="status-pill">
+            <span id="status-dot" class="dot"></span>
+            <span id="status-text">未连接</span>
+        </div>
+    </header>
+
+    <div class="layout">
+        <!-- 左边：数值/延迟卡片 -->
+        <section class="card">
+            <div class="card-header">
+                <div class="card-title">Orientation</div>
+                <div class="card-sub" id="timestamp">--:--:--</div>
+            </div>
+
+            <div class="metrics-grid">
+                <!-- Roll -->
+                <div class="metric">
+                    <div class="metric-label">Roll</div>
+                    <div>
+                        <span class="metric-value" id="roll">0.00</span>
+                        <span class="metric-unit">deg</span>
+                    </div>
+                    <div class="metric-tag">绕 X 轴旋转</div>
+                </div>
+                <!-- Pitch -->
+                <div class="metric">
+                    <div class="metric-label">Pitch</div>
+                    <div>
+                        <span class="metric-value" id="pitch">0.00</span>
+                        <span class="metric-unit">deg</span>
+                    </div>
+                    <div class="metric-tag">绕 Y 轴旋转</div>
+                </div>
+                <!-- Yaw -->
+                <div class="metric">
+                    <div class="metric-label">Yaw</div>
+                    <div>
+                        <span class="metric-value" id="yaw">0.00</span>
+                        <span class="metric-unit">deg</span>
+                    </div>
+                    <div class="metric-tag">绕 Z 轴旋转</div>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <!-- ESP -> Server -->
+                <div class="metric metric-lat">
+                    <div class="metric-label">ESP ➜ Server</div>
+                    <div>
+                        <span class="metric-value" id="latency_es">0</span>
+                        <span class="metric-unit">ms</span>
+                    </div>
+                    <div class="metric-tag">单向估计延迟</div>
+                </div>
+                <!-- Server -> Client -->
+                <div class="metric metric-lat">
+                    <div class="metric-label">Server ➜ Client</div>
+                    <div>
+                        <span class="metric-value" id="latency_sc">0</span>
+                        <span class="metric-unit">ms</span>
+                    </div>
+                    <div class="metric-tag">浏览器端测量</div>
+                </div>
+                <!-- 总链路 -->
+                <div class="metric">
+                    <div class="metric-label">Total Path (估计)</div>
+                    <div>
+                        <span class="metric-value" id="latency_total">0</span>
+                        <span class="metric-unit">ms</span>
+                    </div>
+                    <div class="metric-tag">ESP ➜ Server ➜ Client</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 右边：3D 视图 -->
+        <section class="card">
+            <div class="card-header">
+                <div class="card-title">3D Visualization</div>
+                <div class="card-sub">竖直长条的方向映射当前欧拉角</div>
+            </div>
+            <div id="canvas3d">
+                <div class="overlay-corner" id="fps-info">Waiting for data...</div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.156.1/build/three.min.js"></script>
+<script>
+    const ws = new WebSocket(`ws://${window.location.host}`);
+
+    const statusDot  = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const tsSpan     = document.getElementById('timestamp');
+    const fpsInfo    = document.getElementById('fps-info');
+
+    let scene, camera, renderer, cube;
+    let frameCount = 0;
+    let lastFpsUpdate = performance.now();
+
+    function setStatus(online) {
+        if (online) {
+            statusDot.classList.add('online');
+            statusText.textContent = '已连接';
+        } else {
+            statusDot.classList.remove('online');
+            statusText.textContent = '未连接';
+        }
+    }
+
+    function formatTime(ts) {
+        const d = new Date(ts);
+        const pad = n => n.toString().padStart(2, '0');
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function init3D() {
+        const container = document.getElementById('canvas3d');
+        const width  = container.clientWidth;
+        const height = container.clientHeight;
+
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020617);
+
+        camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+        camera.position.set(2.5, 1.8, 4.2);
+        camera.lookAt(0, 0, 0);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(width, height);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        container.appendChild(renderer.domElement);
+
+        // 立方体
+        const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x60a5fa,
+            metalness: 0.3,
+            roughness: 0.3
+        });
+        cube = new THREE.Mesh(geometry, material);
+        scene.add(cube);
+
+        // 顶部小箭头（可视化前端）
+        const coneGeo = new THREE.ConeGeometry(0.25, 0.6, 24);
+        const coneMat = new THREE.MeshStandardMaterial({ color: 0xf97316 });
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.position.y = 1.2;
+        cube.add(cone);
+
+        // 灯光
+        const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambient);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        dirLight.position.set(3, 5, 4);
+        scene.add(dirLight);
+
+        // 坐标轴和地面
+        const axesHelper = new THREE.AxesHelper(2.5);
+        scene.add(axesHelper);
+
+        const grid = new THREE.GridHelper(8, 16, 0x374151, 0x111827);
+        grid.position.y = -1.2;
+        scene.add(grid);
+
+        animate();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (!renderer || !scene || !camera) return;
+
+        renderer.render(scene, camera);
+
+        // FPS 统计
+        const now = performance.now();
+        frameCount++;
+        if (now - lastFpsUpdate > 1000) {
+            const fps = (frameCount * 1000) / (now - lastFpsUpdate);
+            fpsInfo.textContent = `FPS: ${fps.toFixed(1)}`;
+            lastFpsUpdate = now;
+            frameCount = 0;
+        }
+    }
+
+    // yaw 轴竖直向上：对 IMU 四元数做简单坐标变换，使 yaw 主要体现在世界 Y 轴
+    function updateCubeFromQuat(q0, q1, q2, q3) {
+        if (!cube) return;
+
+        // 原 IMU 四元数 (w = q0, x = q1, y = q2, z = q3)
+        const w = q0, x = q1, y = q2, z = q3;
+
+        // ★ 试探性轴变换：
+        // 假设 IMU: x-前, y-左, z-上
+        // Three.js: X-右, Y-上, Z-出屏
+        // 目标：IMU 的“绕上轴旋转”（yaw）对应 Three.js 的绕 Y 轴
+        //
+        // 这里给一个常用变换，你可以按效果再微调符号：
+        // world_x =  z
+        // world_y =  x
+        // world_z =  y
+        //
+        // 对应四元数（简单重排）：
+        const wx =  x;
+        const wy =  z;
+        const wz =  -y;
+
+        cube.quaternion.set(wx, wy, wz, w);
+    }
+
+    // 从四元数计算欧拉角，用于数值显示（单位：度）
+    function eulerFromQuat(q0, q1, q2, q3) {
+        // 这里采用与 MPU6050.c 中相同的转换公式
+        const rad2deg = 180 / Math.PI;
+
+        const sinr_cosp = 2 * (q0 * q1 + q2 * q3);
+        const cosr_cosp = 1 - 2 * (q1 * q1 + q2 * q2);
+        const roll = Math.atan2(sinr_cosp, cosr_cosp) * rad2deg;
+
+        const sinp = 2 * (q0 * q2 - q3 * q1);
+        let pitch;
+        if (Math.abs(sinp) >= 1) {
+            pitch = Math.sign(sinp) * 90;  // 接近极点时直接夹到 ±90°
+        } else {
+            pitch = Math.asin(sinp) * rad2deg;
+        }
+
+        const siny_cosp = 2 * (q0 * q3 + q1 * q2);
+        const cosy_cosp = 1 - 2 * (q2 * q2 + q3 * q3);
+        const yaw = Math.atan2(siny_cosp, cosy_cosp) * rad2deg;
+
+        return { roll, pitch, yaw };
+    }
+
+    ws.onopen = () => {
+        console.log('Connected to server');
+        setStatus(true);
+    };
+
+    ws.onclose = () => {
+        console.log('Disconnected');
+        setStatus(false);
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type !== 'quat') return;
+
+        const { q0, q1, q2, q3 } = data;
+
+        // 1) 用四元数驱动 3D 模型
+        updateCubeFromQuat(q0, q1, q2, q3);
+
+        // 2) 浏览器端从四元数算欧拉角，仅用于显示
+        const euler = eulerFromQuat(q0, q1, q2, q3);
+        document.getElementById('roll').textContent  = euler.roll.toFixed(2);
+        document.getElementById('pitch').textContent = euler.pitch.toFixed(2);
+        document.getElementById('yaw').textContent   = euler.yaw.toFixed(2);
+
+        // 3) 时间戳
+        const ts = data.serverTime || Date.now();
+        tsSpan.textContent = formatTime(ts);
+
+        // 4) 延迟：ESP -> Server
+        if (typeof data.lat_es === 'number') {
+            document.getElementById('latency_es').textContent =
+                data.lat_es.toFixed(0);
+        }
+
+        // 5) 延迟：Server -> Client
+        if (data.serverTime) {
+            const now = Date.now();
+            const latencySc = now - data.serverTime;
+            document.getElementById('latency_sc').textContent =
+                latencySc.toFixed(0);
+
+            // 估算总链路
+            const total = (data.lat_es || 0) + latencySc;
+            document.getElementById('latency_total').textContent =
+                total.toFixed(0);
+        }
+    };
+
+    window.addEventListener('resize', () => {
+        if (!renderer || !camera) return;
+        const container = document.getElementById('canvas3d');
+        const width  = container.clientWidth;
+        const height = container.clientHeight;
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height);
+    });
+
+    init3D();
+</script>
+</body>
+</html>
+`
